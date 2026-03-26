@@ -12,26 +12,12 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.JsonPrimitive
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.http.GET
-import retrofit2.http.Header
-
-data class Restaurant(
-    val id: Int,
-    val name: String,
-    val cuisine: String,
-    val attentionHours: String
-)
-
-interface RestaurantApiService {
-    @GET("restaurants")
-    fun getRestaurants(@Header("Authorization") token: String): Call<JsonElement>
-    fun getRestaurants(@Header("Authorization") token: String): Call<JsonArray>
-}
 
 class HomeActivity : AppCompatActivity() {
 
@@ -121,84 +107,6 @@ class HomeActivity : AppCompatActivity() {
             if (!element.isJsonObject) return@mapNotNull null
             parseRestaurant(element.asJsonObject)
         }
-
-        val retrofit = Retrofit.Builder()
-            .baseUrl("http://10.0.2.2:8000/")
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-
-        retrofit.create(RestaurantApiService::class.java)
-            .getRestaurants("Bearer $token")
-            .enqueue(object : Callback<JsonArray> {
-                override fun onResponse(call: Call<JsonArray>, response: Response<JsonArray>) {
-                    showLoading(false)
-
-                    if (!response.isSuccessful || response.body() == null) {
-                        showEmptyState("No se pudieron cargar los restaurantes")
-                        return
-                    }
-
-                    val restaurants = response.body()!!
-                        .mapNotNull { element -> parseRestaurant(element) }
-
-                    if (restaurants.isEmpty()) {
-                        showEmptyState("No hay restaurantes disponibles")
-                    } else {
-                        tvEmptyState.visibility = View.GONE
-                        rvRestaurants.visibility = View.VISIBLE
-                        restaurantsAdapter.submitList(restaurants)
-                    }
-                }
-
-                override fun onFailure(call: Call<JsonArray>, t: Throwable) {
-                    showLoading(false)
-                    showEmptyState("Error de conexión")
-                    Toast.makeText(this@HomeActivity, "${t.message}", Toast.LENGTH_SHORT).show()
-                }
-            })
-    }
-
-    private fun parseRestaurant(element: JsonElement): Restaurant? {
-        val json = element.asJsonObject
-
-        val id = readInt(json, "id", "restaurant_id") ?: return null
-        val name = readString(json, "name", "nombre", "restaurant_name") ?: "Restaurante #$id"
-        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria") ?: "Cocina internacional"
-        val hours = readString(json, "attention_hours", "horario", "hours") ?: "Lunes a Domingo: 12:00 - 23:00"
-
-        return Restaurant(id, name, cuisine, hours)
-    }
-
-    private fun readString(json: com.google.gson.JsonObject, vararg keys: String): String? {
-        for (key in keys) {
-            if (json.has(key) && !json.get(key).isJsonNull) {
-                return json.get(key).asString
-            }
-        }
-        return null
-    }
-
-    private fun readInt(json: com.google.gson.JsonObject, vararg keys: String): Int? {
-        for (key in keys) {
-            if (json.has(key) && !json.get(key).isJsonNull) {
-                val value = json.get(key)
-                if (value.isJsonPrimitive) {
-                    return value.asInt
-                }
-            }
-        }
-        return null
-    }
-
-    private fun showLoading(isLoading: Boolean) {
-        progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
-        rvRestaurants.visibility = if (isLoading) View.GONE else rvRestaurants.visibility
-    }
-
-    private fun showEmptyState(message: String) {
-        rvRestaurants.visibility = View.GONE
-        tvEmptyState.visibility = View.VISIBLE
-        tvEmptyState.text = message
     }
 
     private fun findRestaurantArray(json: JsonObject): JsonArray? {
@@ -208,6 +116,14 @@ class HomeActivity : AppCompatActivity() {
                 return json.getAsJsonArray(key)
             }
         }
+
+        val objectKeys = listOf("data", "result", "payload")
+        for (key in objectKeys) {
+            if (!json.has(key) || !json.get(key).isJsonObject) continue
+            val nestedArray = findRestaurantArray(json.getAsJsonObject(key))
+            if (nestedArray != null) return nestedArray
+        }
+
         return null
     }
 
@@ -223,7 +139,16 @@ class HomeActivity : AppCompatActivity() {
     private fun readString(json: JsonObject, vararg keys: String): String? {
         for (key in keys) {
             if (json.has(key) && !json.get(key).isJsonNull) {
-                return json.get(key).asString
+                val value = json.get(key)
+                if (value.isJsonPrimitive) {
+                    val primitive: JsonPrimitive = value.asJsonPrimitive
+                    return when {
+                        primitive.isString -> primitive.asString
+                        primitive.isNumber -> primitive.asNumber.toString()
+                        primitive.isBoolean -> primitive.asBoolean.toString()
+                        else -> null
+                    }
+                }
             }
         }
         return null
