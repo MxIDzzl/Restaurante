@@ -29,7 +29,7 @@ data class Restaurant(
 
 interface RestaurantApiService {
     @GET("restaurants")
-    fun getRestaurants(@Header("Authorization") token: String): Call<JsonArray>
+    fun getRestaurants(@Header("Authorization") token: String): Call<JsonElement>
 }
 
 class HomeActivity : AppCompatActivity() {
@@ -79,8 +79,8 @@ class HomeActivity : AppCompatActivity() {
 
         retrofit.create(RestaurantApiService::class.java)
             .getRestaurants("Bearer $token")
-            .enqueue(object : Callback<JsonArray> {
-                override fun onResponse(call: Call<JsonArray>, response: Response<JsonArray>) {
+            .enqueue(object : Callback<JsonElement> {
+                override fun onResponse(call: Call<JsonElement>, response: Response<JsonElement>) {
                     showLoading(false)
 
                     if (!response.isSuccessful || response.body() == null) {
@@ -88,8 +88,9 @@ class HomeActivity : AppCompatActivity() {
                         return
                     }
 
-                    val restaurants = response.body()!!
-                        .mapNotNull { element -> parseRestaurant(element) }
+                    val restaurantsPayload = extractRestaurantsPayload(response.body()!!)
+                    val restaurants = restaurantsPayload
+                        .mapIndexedNotNull { index, element -> parseRestaurant(element, index + 1) }
 
                     if (restaurants.isEmpty()) {
                         showEmptyState("No hay restaurantes disponibles")
@@ -100,7 +101,7 @@ class HomeActivity : AppCompatActivity() {
                     }
                 }
 
-                override fun onFailure(call: Call<JsonArray>, t: Throwable) {
+                override fun onFailure(call: Call<JsonElement>, t: Throwable) {
                     showLoading(false)
                     showEmptyState("Error de conexión")
                     Toast.makeText(this@HomeActivity, "${t.message}", Toast.LENGTH_SHORT).show()
@@ -113,7 +114,7 @@ class HomeActivity : AppCompatActivity() {
 
         val json = element.asJsonObject
 
-        val id = readInt(json, "id", "restaurant_id") ?: return null
+        val id = readInt(json, "id", "restaurant_id", "restaurantId") ?: fallbackId
         val name = readString(json, "name", "nombre", "restaurant_name") ?: "Restaurante #$id"
         val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria")
             ?: "Cocina internacional"
