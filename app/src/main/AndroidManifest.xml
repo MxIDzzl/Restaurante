@@ -19,6 +19,9 @@
             android:name=".RegisterActivity"
             android:exported="false" />
         <activity
+            android:name=".RestaurantMenuActivity"
+            android:exported="false" />
+        <activity
             android:name=".HomeActivity"
             android:exported="false" />
         <activity
