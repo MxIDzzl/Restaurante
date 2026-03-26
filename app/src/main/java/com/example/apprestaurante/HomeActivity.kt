@@ -1,20 +1,152 @@
 package com.example.apprestaurante
 
+import android.content.Intent
 import android.os.Bundle
-import androidx.activity.enableEdgeToEdge
+import android.view.View
+import android.widget.ProgressBar
+import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.GET
+import retrofit2.http.Header
+
+data class Restaurant(
+    val id: Int,
+    val name: String,
+    val cuisine: String,
+    val attentionHours: String
+)
+
+interface RestaurantApiService {
+    @GET("restaurants")
+    fun getRestaurants(@Header("Authorization") token: String): Call<JsonArray>
+}
 
 class HomeActivity : AppCompatActivity() {
+
+    private lateinit var rvRestaurants: RecyclerView
+    private lateinit var tvEmptyState: TextView
+    private lateinit var progressBar: ProgressBar
+
+    private val restaurantsAdapter = RestaurantAdapter { restaurant ->
+        val intent = Intent(this, RestaurantMenuActivity::class.java).apply {
+            putExtra(RestaurantMenuActivity.EXTRA_RESTAURANT_ID, restaurant.id)
+            putExtra(RestaurantMenuActivity.EXTRA_RESTAURANT_NAME, restaurant.name)
+            putExtra(RestaurantMenuActivity.EXTRA_RESTAURANT_CUISINE, restaurant.cuisine)
+            putExtra(RestaurantMenuActivity.EXTRA_RESTAURANT_HOURS, restaurant.attentionHours)
+        }
+        startActivity(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContentView(R.layout.activity_home)
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
+
+        rvRestaurants = findViewById(R.id.rvRestaurants)
+        tvEmptyState = findViewById(R.id.tvEmptyState)
+        progressBar = findViewById(R.id.progressBar)
+
+        rvRestaurants.layoutManager = LinearLayoutManager(this)
+        rvRestaurants.adapter = restaurantsAdapter
+
+        loadRestaurants()
+    }
+
+    private fun loadRestaurants() {
+        showLoading(true)
+
+        val token = getSharedPreferences("app_prefs", MODE_PRIVATE).getString("token", null)
+        if (token.isNullOrBlank()) {
+            showLoading(false)
+            showEmptyState("No hay sesión activa")
+            return
         }
+
+        val retrofit = Retrofit.Builder()
+            .baseUrl("http://10.0.2.2:8000/")
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+
+        retrofit.create(RestaurantApiService::class.java)
+            .getRestaurants("Bearer $token")
+            .enqueue(object : Callback<JsonArray> {
+                override fun onResponse(call: Call<JsonArray>, response: Response<JsonArray>) {
+                    showLoading(false)
+
+                    if (!response.isSuccessful || response.body() == null) {
+                        showEmptyState("No se pudieron cargar los restaurantes")
+                        return
+                    }
+
+                    val restaurants = response.body()!!
+                        .mapNotNull { element -> parseRestaurant(element) }
+
+                    if (restaurants.isEmpty()) {
+                        showEmptyState("No hay restaurantes disponibles")
+                    } else {
+                        tvEmptyState.visibility = View.GONE
+                        rvRestaurants.visibility = View.VISIBLE
+                        restaurantsAdapter.submitList(restaurants)
+                    }
+                }
+
+                override fun onFailure(call: Call<JsonArray>, t: Throwable) {
+                    showLoading(false)
+                    showEmptyState("Error de conexión")
+                    Toast.makeText(this@HomeActivity, "${t.message}", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+
+    private fun parseRestaurant(element: JsonElement): Restaurant? {
+        val json = element.asJsonObject
+
+        val id = readInt(json, "id", "restaurant_id") ?: return null
+        val name = readString(json, "name", "nombre", "restaurant_name") ?: "Restaurante #$id"
+        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria") ?: "Cocina internacional"
+        val hours = readString(json, "attention_hours", "horario", "hours") ?: "Lunes a Domingo: 12:00 - 23:00"
+
+        return Restaurant(id, name, cuisine, hours)
+    }
+
+    private fun readString(json: com.google.gson.JsonObject, vararg keys: String): String? {
+        for (key in keys) {
+            if (json.has(key) && !json.get(key).isJsonNull) {
+                return json.get(key).asString
+            }
+        }
+        return null
+    }
+
+    private fun readInt(json: com.google.gson.JsonObject, vararg keys: String): Int? {
+        for (key in keys) {
+            if (json.has(key) && !json.get(key).isJsonNull) {
+                val value = json.get(key)
+                if (value.isJsonPrimitive) {
+                    return value.asInt
+                }
+            }
+        }
+        return null
+    }
+
+    private fun showLoading(isLoading: Boolean) {
+        progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+        rvRestaurants.visibility = if (isLoading) View.GONE else rvRestaurants.visibility
+    }
+
+    private fun showEmptyState(message: String) {
+        rvRestaurants.visibility = View.GONE
+        tvEmptyState.visibility = View.VISIBLE
+        tvEmptyState.text = message
     }
 }
