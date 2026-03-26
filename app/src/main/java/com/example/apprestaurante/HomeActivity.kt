@@ -91,7 +91,7 @@ class HomeActivity : AppCompatActivity() {
 
                     val restaurantsPayload = extractRestaurantsPayload(response.body()!!)
                     val restaurants = restaurantsPayload
-                        .mapNotNull { element -> parseRestaurant(element) }
+                        .mapIndexedNotNull { index, element -> parseRestaurant(element, index + 1) }
 
                     if (restaurants.isEmpty()) {
                         showEmptyState("No hay restaurantes disponibles")
@@ -144,16 +144,16 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
-    private fun parseRestaurant(element: JsonElement): Restaurant? {
+    private fun parseRestaurant(element: JsonElement, fallbackId: Int): Restaurant? {
         if (!element.isJsonObject) return null
 
         val json = element.asJsonObject
 
-        val id = readInt(json, "id", "restaurant_id") ?: return null
+        val id = readInt(json, "id", "restaurant_id", "restaurantId") ?: fallbackId
         val name = readString(json, "name", "nombre", "restaurant_name") ?: "Restaurante #$id"
-        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria")
+        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria", "type")
             ?: "Cocina internacional"
-        val hours = readString(json, "attention_hours", "horario", "hours", "attentionHours")
+        val hours = readString(json, "attention_hours", "horario", "hours", "attentionHours", "description")
             ?: "Lunes a Domingo: 12:00 - 23:00"
 
         return Restaurant(id, name, cuisine, hours)
