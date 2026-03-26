@@ -11,6 +11,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -28,7 +30,7 @@ data class Restaurant(
 
 interface RestaurantApiService {
     @GET("restaurants")
-    fun getRestaurants(@Header("Authorization") token: String): Call<JsonArray>
+    fun getRestaurants(@Header("Authorization") token: String): Call<JsonElement>
 }
 
 class HomeActivity : AppCompatActivity() {
@@ -78,8 +80,8 @@ class HomeActivity : AppCompatActivity() {
 
         retrofit.create(RestaurantApiService::class.java)
             .getRestaurants("Bearer $token")
-            .enqueue(object : Callback<JsonArray> {
-                override fun onResponse(call: Call<JsonArray>, response: Response<JsonArray>) {
+            .enqueue(object : Callback<JsonElement> {
+                override fun onResponse(call: Call<JsonElement>, response: Response<JsonElement>) {
                     showLoading(false)
 
                     if (!response.isSuccessful || response.body() == null) {
@@ -87,7 +89,8 @@ class HomeActivity : AppCompatActivity() {
                         return
                     }
 
-                    val restaurants = response.body()!!
+                    val restaurantsPayload = extractRestaurantsPayload(response.body()!!)
+                    val restaurants = restaurantsPayload
                         .mapNotNull { element -> parseRestaurant(element) }
 
                     if (restaurants.isEmpty()) {
@@ -99,7 +102,7 @@ class HomeActivity : AppCompatActivity() {
                     }
                 }
 
-                override fun onFailure(call: Call<JsonArray>, t: Throwable) {
+                override fun onFailure(call: Call<JsonElement>, t: Throwable) {
                     showLoading(false)
                     showEmptyState("Error de conexión")
                     Toast.makeText(this@HomeActivity, "${t.message}", Toast.LENGTH_SHORT).show()
@@ -107,33 +110,90 @@ class HomeActivity : AppCompatActivity() {
             })
     }
 
+
+    private fun extractRestaurantsPayload(responseBody: JsonElement): JsonArray {
+        return when {
+            responseBody.isJsonArray -> responseBody.asJsonArray
+            responseBody.isJsonObject -> {
+                val json = responseBody.asJsonObject
+
+                val candidateKeys = listOf("restaurants", "data", "items", "results")
+                for (key in candidateKeys) {
+                    val candidate = json.get(key)
+                    if (candidate != null && candidate.isJsonArray) {
+                        return candidate.asJsonArray
+                    }
+                }
+
+                JsonArray()
+            }
+            responseBody.isJsonPrimitive -> {
+                val primitive = responseBody.asJsonPrimitive
+                if (primitive.isString) {
+                    val text = primitive.asString
+                    runCatching { JsonParser.parseString(text) }
+                        .getOrNull()
+                        ?.takeIf { it.isJsonArray }
+                        ?.asJsonArray
+                        ?: JsonArray()
+                } else {
+                    JsonArray()
+                }
+            }
+            else -> JsonArray()
+        }
+    }
+
     private fun parseRestaurant(element: JsonElement): Restaurant? {
+        if (!element.isJsonObject) return null
+
         val json = element.asJsonObject
 
         val id = readInt(json, "id", "restaurant_id") ?: return null
         val name = readString(json, "name", "nombre", "restaurant_name") ?: "Restaurante #$id"
-        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria") ?: "Cocina internacional"
-        val hours = readString(json, "attention_hours", "horario", "hours") ?: "Lunes a Domingo: 12:00 - 23:00"
+        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria")
+            ?: "Cocina internacional"
+        val hours = readString(json, "attention_hours", "horario", "hours", "attentionHours")
+            ?: "Lunes a Domingo: 12:00 - 23:00"
 
         return Restaurant(id, name, cuisine, hours)
     }
 
-    private fun readString(json: com.google.gson.JsonObject, vararg keys: String): String? {
+    private fun readString(json: JsonObject, vararg keys: String): String? {
         for (key in keys) {
-            if (json.has(key) && !json.get(key).isJsonNull) {
-                return json.get(key).asString
+            if (!json.has(key) || json.get(key).isJsonNull) continue
+
+            val value = json.get(key)
+            if (!value.isJsonPrimitive) continue
+
+            return try {
+                value.asString
+            } catch (_: UnsupportedOperationException) {
+                null
             }
         }
         return null
     }
 
-    private fun readInt(json: com.google.gson.JsonObject, vararg keys: String): Int? {
+    private fun readInt(json: JsonObject, vararg keys: String): Int? {
         for (key in keys) {
-            if (json.has(key) && !json.get(key).isJsonNull) {
-                val value = json.get(key)
-                if (value.isJsonPrimitive) {
-                    return value.asInt
+            if (!json.has(key) || json.get(key).isJsonNull) continue
+
+            val value = json.get(key)
+            if (!value.isJsonPrimitive) continue
+
+            val primitive = value.asJsonPrimitive
+
+            if (primitive.isNumber) {
+                return try {
+                    primitive.asInt
+                } catch (_: NumberFormatException) {
+                    null
                 }
+            }
+
+            if (primitive.isString) {
+                return primitive.asString.toIntOrNull()
             }
         }
         return null
