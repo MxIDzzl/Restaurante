@@ -1,4 +1,3 @@
-package com.example.apprestaurante
 
 import android.content.Intent
 import android.os.Bundle
