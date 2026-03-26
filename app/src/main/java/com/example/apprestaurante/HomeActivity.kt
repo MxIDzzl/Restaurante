@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
+import com.google.gson.JsonObject
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -108,32 +109,55 @@ class HomeActivity : AppCompatActivity() {
     }
 
     private fun parseRestaurant(element: JsonElement): Restaurant? {
+        if (!element.isJsonObject) return null
+
         val json = element.asJsonObject
 
         val id = readInt(json, "id", "restaurant_id") ?: return null
         val name = readString(json, "name", "nombre", "restaurant_name") ?: "Restaurante #$id"
-        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria") ?: "Cocina internacional"
-        val hours = readString(json, "attention_hours", "horario", "hours") ?: "Lunes a Domingo: 12:00 - 23:00"
+        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria")
+            ?: "Cocina internacional"
+        val hours = readString(json, "attention_hours", "horario", "hours", "attentionHours")
+            ?: "Lunes a Domingo: 12:00 - 23:00"
 
         return Restaurant(id, name, cuisine, hours)
     }
 
-    private fun readString(json: com.google.gson.JsonObject, vararg keys: String): String? {
+    private fun readString(json: JsonObject, vararg keys: String): String? {
         for (key in keys) {
-            if (json.has(key) && !json.get(key).isJsonNull) {
-                return json.get(key).asString
+            if (!json.has(key) || json.get(key).isJsonNull) continue
+
+            val value = json.get(key)
+            if (!value.isJsonPrimitive) continue
+
+            return try {
+                value.asString
+            } catch (_: UnsupportedOperationException) {
+                null
             }
         }
         return null
     }
 
-    private fun readInt(json: com.google.gson.JsonObject, vararg keys: String): Int? {
+    private fun readInt(json: JsonObject, vararg keys: String): Int? {
         for (key in keys) {
-            if (json.has(key) && !json.get(key).isJsonNull) {
-                val value = json.get(key)
-                if (value.isJsonPrimitive) {
-                    return value.asInt
+            if (!json.has(key) || json.get(key).isJsonNull) continue
+
+            val value = json.get(key)
+            if (!value.isJsonPrimitive) continue
+
+            val primitive = value.asJsonPrimitive
+
+            if (primitive.isNumber) {
+                return try {
+                    primitive.asInt
+                } catch (_: NumberFormatException) {
+                    null
                 }
+            }
+
+            if (primitive.isString) {
+                return primitive.asString.toIntOrNull()
             }
         }
         return null
