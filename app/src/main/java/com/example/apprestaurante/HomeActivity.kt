@@ -12,7 +12,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -110,50 +109,16 @@ class HomeActivity : AppCompatActivity() {
             })
     }
 
-
-    private fun extractRestaurantsPayload(responseBody: JsonElement): JsonArray {
-        return when {
-            responseBody.isJsonArray -> responseBody.asJsonArray
-            responseBody.isJsonObject -> {
-                val json = responseBody.asJsonObject
-
-                val candidateKeys = listOf("restaurants", "data", "items", "results")
-                for (key in candidateKeys) {
-                    val candidate = json.get(key)
-                    if (candidate != null && candidate.isJsonArray) {
-                        return candidate.asJsonArray
-                    }
-                }
-
-                JsonArray()
-            }
-            responseBody.isJsonPrimitive -> {
-                val primitive = responseBody.asJsonPrimitive
-                if (primitive.isString) {
-                    val text = primitive.asString
-                    runCatching { JsonParser.parseString(text) }
-                        .getOrNull()
-                        ?.takeIf { it.isJsonArray }
-                        ?.asJsonArray
-                        ?: JsonArray()
-                } else {
-                    JsonArray()
-                }
-            }
-            else -> JsonArray()
-        }
-    }
-
-    private fun parseRestaurant(element: JsonElement, fallbackId: Int): Restaurant? {
+    private fun parseRestaurant(element: JsonElement): Restaurant? {
         if (!element.isJsonObject) return null
 
         val json = element.asJsonObject
 
         val id = readInt(json, "id", "restaurant_id", "restaurantId") ?: fallbackId
         val name = readString(json, "name", "nombre", "restaurant_name") ?: "Restaurante #$id"
-        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria", "type")
+        val cuisine = readString(json, "cuisine", "tipo_cocina", "category", "categoria")
             ?: "Cocina internacional"
-        val hours = readString(json, "attention_hours", "horario", "hours", "attentionHours", "description")
+        val hours = readString(json, "attention_hours", "horario", "hours", "attentionHours")
             ?: "Lunes a Domingo: 12:00 - 23:00"
 
         return Restaurant(id, name, cuisine, hours)
